@@ -3,21 +3,24 @@
  * plus the SSE stream that pushes live events to the browser.
  *
  * Route map:
- *   GET  /api/metrics             → metric catalog (drives the setup UI)
- *   GET  /api/test-connection     → probe the dashboard URL
- *   POST /api/initialize          → save config, start the watcher
- *   POST /api/stop                → stop the watcher
- *   GET  /api/status              → current tool status (poll counts etc.)
- *   GET  /api/reports/stream      → SSE: poll/breach/progress/complete events
- *   GET  /api/reports             → report history (newest first)
- *   GET  /api/reports/:id         → one full report
- *   POST /api/reports/:id/email   → send report by email (user click only)
- *   GET  /api/rate-limits         → LLM quota usage for the status bar
+ *   GET    /api/metrics            → metric catalog (drives the setup UI)
+ *   GET    /api/metrics/baseline   → dashboard baseline values (prefill guardrails)
+ *   GET    /api/test-connection    → probe the dashboard URL
+ *   POST   /api/initialize         → save config, start the watcher
+ *   POST   /api/stop               → stop the watcher
+ *   GET    /api/status             → current tool status (poll counts etc.)
+ *   GET    /api/reports/stream     → SSE: poll/breach/progress/complete events
+ *   GET    /api/reports            → report history (newest first)
+ *   GET    /api/reports/:id        → one full report
+ *   DELETE /api/reports/:id        → erase a report from Neon + Pinecone + memory
+ *   POST   /api/reports/:id/email  → send report by email (user click only)
+ *   GET    /api/rate-limits        → LLM quota usage for the status bar
  */
 import { Router, type Request, type Response } from "express";
 import { ENV, METRIC_CATALOG } from "../config.js";
 import { watcher } from "../watcher/metricWatcher.js";
-import { getReport, listReports } from "../db/neon.js";
+import { getReport, listReports, deleteReport } from "../db/neon.js";
+import { deleteVectors } from "../vectordb/pinecone.js";
 import { sendReportEmail } from "../delivery/emailSender.js";
 import { rateLimiters } from "../rca/reportGenerator.js";
 import type { GuardrailConfig, InitializeRequest, SseEvent } from "../types.js";
@@ -81,6 +84,63 @@ router.get("/api/metrics", (_req, res) => {
   });
 });
 
+/**
+ * Baseline values from the dashboard, used to prefill the guardrail inputs
+ * with real numbers instead of fixed catalog constants. Tries the dashboard's
+ * /api/metrics/initial first; if that's unavailable, falls back to the latest
+ * values from /api/metrics/live. Normalizes both `{ values: {...} }` and flat
+ * shapes into a plain metricKey -> number map.
+ */
+router.get("/api/metrics/baseline", async (req, res) => {
+  const url = String(req.query.url ?? ENV.DASHBOARD_URL).replace(/\/$/, "");
+  if (!url) {
+    res.json({ ok: false, error: "No dashboard URL provided." });
+    return;
+  }
+
+  /** Pull a flat metricKey->number map out of whatever shape the dashboard returns. */
+  const normalize = (body: Record<string, unknown>): Record<string, number> => {
+    let raw: Record<string, unknown> = {};
+    if (body.values && typeof body.values === "object") {
+      raw = body.values as Record<string, unknown>;
+    } else if (Array.isArray(body.window)) {
+      const w = body.window as Array<{ values?: Record<string, unknown> }>;
+      raw = w[w.length - 1]?.values ?? {};
+    } else {
+      raw = body;
+    }
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const n = typeof v === "number" ? v : Number((v as { value?: unknown })?.value ?? v);
+      if (Number.isFinite(n)) out[k] = n;
+    }
+    return out;
+  };
+
+  const fetchJson = async (path: string): Promise<Record<string, unknown>> => {
+    const r = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(8_000) });
+    if (!r.ok) throw new Error(`${path} responded ${r.status}`);
+    return (await r.json()) as Record<string, unknown>;
+  };
+
+  try {
+    let values: Record<string, number> = {};
+    try {
+      values = normalize(await fetchJson("/api/metrics/initial"));
+    } catch {
+      // Dashboard has no /initial — use the latest live values instead.
+      values = normalize(await fetchJson("/api/metrics/live"));
+    }
+    if (Object.keys(values).length === 0) {
+      res.json({ ok: false, error: "Dashboard returned no baseline values." });
+      return;
+    }
+    res.json({ ok: true, values });
+  } catch (err) {
+    res.json({ ok: false, error: err instanceof Error ? err.message : "Baseline fetch failed" });
+  }
+});
+
 /** "Test connection" button: probe {url}/api/metrics/live. */
 router.get("/api/test-connection", async (req, res) => {
   const url = String(req.query.url ?? ENV.DASHBOARD_URL).replace(/\/$/, "");
@@ -124,11 +184,15 @@ router.post("/api/initialize", async (req, res) => {
       res.status(400).json({ ok: false, error: `Invalid guardrail for ${g.metricKey}` });
       return;
     }
+    // Direction is user-selectable in the UI (MIN = breach below, MAX = breach
+    // above). Honor the submitted value; fall back to the catalog's sensible
+    // default if it's missing or invalid.
+    const direction = g.direction === "min" || g.direction === "max" ? g.direction : metric.direction;
     guardrails.push({
       metricKey: g.metricKey,
       displayName: metric.displayName,
       unit: metric.unit,
-      direction: metric.direction,
+      direction,
       threshold,
     });
   }
@@ -170,6 +234,32 @@ router.get("/api/reports/:id", async (req, res) => {
     return;
   }
   res.json(report);
+});
+
+/**
+ * Erase a report from everywhere — "no memory of it." Removes the Neon row
+ * (+ in-memory fallback), then best-effort purges its chunks from Pinecone so
+ * it can never resurface in a future RCA's retrieved context.
+ */
+router.delete("/api/reports/:id", async (req, res) => {
+  const id = String(req.params.id);
+  const { found, vectorIds } = await deleteReport(id);
+  if (!found) {
+    res.status(404).json({ ok: false, error: "Report not found." });
+    return;
+  }
+
+  let deletedVectors = 0;
+  try {
+    await deleteVectors(vectorIds);
+    deletedVectors = vectorIds.length;
+  } catch (err) {
+    // SQL delete already succeeded; surface the vector-store issue but still 200.
+    console.warn("[delete] Pinecone purge failed (SQL row already deleted):", err instanceof Error ? err.message : err);
+  }
+
+  console.log(`[delete] Report ${id} erased (SQL + ${deletedVectors} vectors).`);
+  res.json({ ok: true, deletedVectors });
 });
 
 /** Email — fires ONLY from the user's click in the report viewer. */

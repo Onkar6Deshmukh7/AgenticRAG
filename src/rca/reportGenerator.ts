@@ -18,7 +18,8 @@ import { CONFIG, ENV } from "../config.js";
 import { RateLimiter } from "../rateLimiter/rateLimiter.js";
 import { gatherContext } from "./contextGatherer.js";
 import { buildUserPrompt, extractSeverity, SYSTEM_PROMPT } from "./promptBuilder.js";
-import { saveReport } from "../db/neon.js";
+import { saveReport, setReportVectorIds } from "../db/neon.js";
+import { ingestGeneratedReport } from "../vectordb/reportMemory.js";
 import type { BreachEvent, ReportRecord } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ export async function generateReport(
       onProgress("llm_call", "Rate limit reached — report will be generated when a slot opens...")
     );
 
-    return await saveReport({
+    const saved = await saveReport({
       metricKey: breach.metricKey,
       metricDisplayName: breach.displayName,
       breachValue: breach.value,
@@ -152,6 +153,19 @@ export async function generateReport(
       severity: extractSeverity(markdown),
       llmProvider: provider,
     });
+
+    // Close the RAG loop: embed this report into Pinecone so future RCAs can
+    // learn from it. Best-effort — a vector-store failure must never break
+    // report generation, so we log and move on with the report already saved.
+    try {
+      const vectorIds = await ingestGeneratedReport(saved.id, markdown, breach.framework, breach.displayName);
+      await setReportVectorIds(saved.id, vectorIds);
+      console.log(`[memory] Ingested report ${saved.id} into Pinecone (${vectorIds.length} chunks).`);
+    } catch (err) {
+      console.warn("[memory] Could not ingest report into Pinecone (report still saved):", err instanceof Error ? err.message : err);
+    }
+
+    return saved;
   } catch (err) {
     // Total failure: record the breach anyway so it isn't silently lost.
     const message = err instanceof Error ? err.message : String(err);

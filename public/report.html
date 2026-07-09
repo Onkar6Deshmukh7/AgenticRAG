@@ -29,6 +29,15 @@
   button:hover, .btn:hover { opacity: .88; }
   button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
   .btn.secondary, button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--red); }
+  /* Sidebar per-item delete "✕" */
+  .hist-item { position: relative; }
+  .hist-del {
+    position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; line-height: 18px;
+    text-align: center; border-radius: 5px; color: var(--muted); font-size: 13px;
+    background: var(--panel2); border: 1px solid var(--border); cursor: pointer;
+  }
+  .hist-del:hover { color: #fff; background: var(--red); border-color: var(--red); }
 
   /* Report header card */
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 22px; }
@@ -117,6 +126,7 @@
     <div class="actions">
       <a class="btn secondary" href="/">← Back to monitoring</a>
       <button id="email-btn" style="display:none">Send via Email</button>
+      <button id="delete-btn" class="danger" style="display:none">Delete report</button>
     </div>
 
     <!-- Report metadata header -->
@@ -254,6 +264,7 @@ function showReport(report) {
     <span class="sev sev-${report.severity}">${report.severity.replace("_", " ")}</span>`;
   $("report-header").style.display = "block";
   $("email-btn").style.display = "inline-block";
+  $("delete-btn").style.display = "inline-block";
 
   // Fade the suspense out, the report in.
   $("suspense").style.opacity = "0";
@@ -341,11 +352,42 @@ async function loadHistory() {
   if (reports.length === 0) return;
   $("hist-list").innerHTML = reports.map((r) => `
     <a class="hist-item ${r.id === currentReportId ? "current" : ""}" href="/report.html?id=${r.id}">
+      <span class="hist-del" data-id="${r.id}" title="Delete this report">✕</span>
       <div><b>${r.metricDisplayName}</b></div>
       <div class="hm">${fmt(r.breachValue)} vs ${r.guardrailDirection} ${fmt(r.guardrailValue)} · severity: ${r.severity.replace("_", " ")}</div>
       <div class="hm">${new Date(r.generatedAt).toLocaleString()}</div>
     </a>`).join("");
+
+  // Wire each sidebar ✕ — delete without navigating into the report first.
+  document.querySelectorAll(".hist-del").forEach((el) => {
+    el.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      await deleteReport(el.dataset.id);
+    });
+  });
   return reports;
+}
+
+/**
+ * Erase a report everywhere (SQL + Pinecone + memory) via DELETE. Confirms
+ * first. If the currently-viewed report was deleted, returns to the viewer
+ * root so it reloads the latest/empty state.
+ */
+async function deleteReport(id) {
+  if (!confirm("Permanently delete this report? It will be removed from the database and the tool's vector memory — this cannot be undone.")) return;
+  try {
+    const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!data.ok) { toast(data.error || "Delete failed", false); return; }
+    toast(`Report deleted (removed ${data.deletedVectors} vector chunk${data.deletedVectors === 1 ? "" : "s"} from memory)`, true);
+    if (id === currentReportId) {
+      setTimeout(() => { window.location.href = "/report.html"; }, 900);
+    } else {
+      await loadHistory();
+    }
+  } catch {
+    toast("Delete failed — is the tool backend running?", false);
+  }
 }
 
 /* ---------------- Email ---------------- */
@@ -361,6 +403,11 @@ $("email-btn").addEventListener("click", async () => {
     toast("Email failed — is the tool backend running?", false);
   }
   btn.disabled = false; btn.textContent = "Send via Email";
+});
+
+/* ---------------- Delete (current report) ---------------- */
+$("delete-btn").addEventListener("click", () => {
+  if (currentReportId) deleteReport(currentReportId);
 });
 
 function toast(message, ok) {

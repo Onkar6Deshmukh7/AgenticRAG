@@ -25,6 +25,7 @@ export interface InitializeRequest {
 /** A single poll of the dashboard: raw values for the monitored metrics. */
 export interface PollResult {
   period: number | null; // the dashboard's simulation period, if it reports one
+  isRunning: boolean; // is the dashboard's simulation actively producing data?
   values: Record<string, number>; // metricKey -> current value
   timestamp: string; // ISO time of the poll
 }

@@ -62,6 +62,17 @@
   .metric-item.selected .metric-body { display: block; }
   .guardrail-label { font-size: 12.5px; color: var(--muted); display: block; margin-bottom: 6px; }
   .metric-body input { max-width: 240px; }
+
+  /* MIN/MAX direction toggle (segmented control) */
+  .dir-toggle { display: inline-flex; margin-bottom: 10px; border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden; }
+  .dir-toggle button {
+    background: var(--panel); color: var(--muted); border: none; padding: 6px 14px;
+    font-size: 12.5px; font-weight: 600; cursor: pointer; border-radius: 0;
+  }
+  .dir-toggle button.active { background: var(--accent); color: #fff; }
+  .dir-toggle button:hover { opacity: 1; }
+  .baseline-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
   .framework-tag {
     font-size: 11px; color: var(--muted); background: var(--bg);
     border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px;
@@ -205,11 +216,13 @@ async function loadCatalog() {
         <span class="metric-unit">${m.unit}</span>
       </label>
       <div class="metric-body">
-        <label class="guardrail-label">
-          ${m.direction === "min" ? "Minimum threshold" : "Maximum threshold"} (${m.unit})
-          — breach when value goes ${m.direction === "min" ? "below" : "above"} this
-        </label>
+        <div class="dir-toggle" data-key="${m.key}">
+          <button type="button" data-dir="min" class="${m.direction === "min" ? "active" : ""}">Min — breach below</button>
+          <button type="button" data-dir="max" class="${m.direction === "max" ? "active" : ""}">Max — breach above</button>
+        </div>
+        <label class="guardrail-label" data-key="${m.key}">${guardrailLabel(m.key, m.direction, m.unit)}</label>
         <input type="number" step="any" class="guardrail-input" data-key="${m.key}" value="${m.defaultGuardrail}" />
+        <div class="baseline-note" data-key="${m.key}"></div>
       </div>
     </div>`).join("");
 
@@ -221,13 +234,64 @@ async function loadCatalog() {
   });
   document.querySelectorAll(".guardrail-input").forEach((inp) =>
     inp.addEventListener("input", updateInitButton));
+
+  // Direction toggle: clicking Min/Max updates the active button + label.
+  document.querySelectorAll(".dir-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.parentElement.dataset.key;
+      const dir = btn.dataset.dir;
+      btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+      const unit = (catalog.find((c) => c.key === key) || {}).unit || "";
+      document.querySelector(`.guardrail-label[data-key="${key}"]`).textContent = guardrailLabel(key, dir, unit);
+    });
+  });
+
+  loadBaseline(); // prefill value fields from the dashboard's real baseline
+}
+
+/** The human-readable threshold hint under each metric, given its direction. */
+function guardrailLabel(key, dir, unit) {
+  return dir === "min"
+    ? `Minimum threshold (${unit}) — breach when value goes below this`
+    : `Maximum threshold (${unit}) — breach when value goes above this`;
+}
+
+/** The direction currently selected in the toggle for a metric. */
+function selectedDirection(key) {
+  const active = document.querySelector(`.dir-toggle[data-key="${key}"] button.active`);
+  return active ? active.dataset.dir : "min";
 }
 
 function selectedGuardrails() {
   return [...document.querySelectorAll(".metric-check:checked")].map((cb) => {
-    const input = document.querySelector(`.guardrail-input[data-key="${cb.dataset.key}"]`);
-    return { metricKey: cb.dataset.key, threshold: parseFloat(input.value) };
+    const key = cb.dataset.key;
+    const input = document.querySelector(`.guardrail-input[data-key="${key}"]`);
+    return { metricKey: key, threshold: parseFloat(input.value), direction: selectedDirection(key) };
   }).filter((g) => Number.isFinite(g.threshold));
+}
+
+/**
+ * Prefill each guardrail value field with the dashboard's baseline value, so
+ * thresholds start from reality instead of fixed catalog constants. Falls
+ * back silently to the catalog default when a metric has no baseline.
+ */
+async function loadBaseline() {
+  const url = $("dashboard-url").value.trim();
+  if (!url) return;
+  try {
+    const res = await fetch("/api/metrics/baseline?url=" + encodeURIComponent(url));
+    const data = await res.json();
+    if (!data.ok) return;
+    document.querySelectorAll(".guardrail-input").forEach((inp) => {
+      const base = data.values[inp.dataset.key];
+      if (Number.isFinite(base)) {
+        inp.value = base;
+        const note = document.querySelector(`.baseline-note[data-key="${inp.dataset.key}"]`);
+        if (note) note.textContent = `baseline: ${fmt(base)}`;
+      }
+    });
+    updateInitButton();
+  } catch { /* dashboard unreachable — keep catalog defaults */ }
 }
 
 function updateInitButton() {
@@ -247,15 +311,19 @@ $("test-btn").addEventListener("click", async () => {
     const data = await res.json();
     el.textContent = data.ok ? "✓ Connected — dashboard is reachable" : "✗ " + data.error;
     el.className = "conn-result " + (data.ok ? "conn-ok" : "conn-err");
+    if (data.ok) loadBaseline(); // re-seed guardrails from this dashboard's baseline
   } catch {
     el.textContent = "✗ Could not reach the tool backend"; el.className = "conn-result conn-err";
   }
 });
 
+// Re-fetch baseline when the dashboard URL changes.
+$("dashboard-url").addEventListener("blur", loadBaseline);
+
 /* ---------- 3. Initialize / Stop ---------- */
 $("init-btn").addEventListener("click", async () => {
   const guardrails = selectedGuardrails();
-  guardrails.forEach((g) => { guardrailsByKey[g.metricKey] = g.threshold; });
+  guardrails.forEach((g) => { guardrailsByKey[g.metricKey] = { threshold: g.threshold, direction: g.direction }; });
   const res = await fetch("/api/initialize", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ dashboardUrl: $("dashboard-url").value, guardrails }),
@@ -313,7 +381,7 @@ function connectSse() {
     $("sb-reports").textContent = s.reportsGenerated;
     if (s.running) {
       setRunning(true, s.monitoredMetrics.length);
-      s.monitoredMetrics.forEach((g) => { guardrailsByKey[g.metricKey] = g.threshold; });
+      s.monitoredMetrics.forEach((g) => { guardrailsByKey[g.metricKey] = { threshold: g.threshold, direction: g.direction }; });
     }
   });
 
@@ -322,11 +390,12 @@ function connectSse() {
 
 function renderFeed(d) {
   const rows = Object.entries(d.statuses).map(([key, status]) => {
-    const m = catalog.find((c) => c.key === key) || { displayName: key, unit: "", direction: "min" };
+    const m = catalog.find((c) => c.key === key) || { displayName: key, unit: "" };
+    const g = guardrailsByKey[key] || { threshold: undefined, direction: "min" };
     return `<tr>
       <td>${m.displayName}</td>
       <td class="val-${status}">${fmt(d.values[key])} ${m.unit}</td>
-      <td>${m.direction} ${fmt(guardrailsByKey[key])}</td>
+      <td>${g.direction} ${fmt(g.threshold)}</td>
       <td class="val-${status}">${status === "ok" ? "● within guardrails" : status === "warning" ? "● near threshold" : "● BREACHED"}</td>
     </tr>`;
   }).join("");

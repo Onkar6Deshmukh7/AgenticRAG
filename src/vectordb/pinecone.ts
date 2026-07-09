@@ -61,16 +61,29 @@ export interface ChunkVector {
   id: string;
   values: number[];
   metadata: {
-    source: string; // e.g. "sample_rca_1.md"
+    source: string; // e.g. "sample_rca_1.md" or "past incident: Acceptance rate"
     section: string; // e.g. "root_cause_analysis"
     framework: string; // e.g. "fishbone"
     text: string; // the chunk text itself, returned at query time
+    reportId?: string; // set for generated reports — links back to the Neon row
+    kind?: string; // "seed" (sample) or "generated"
   };
 }
 
 export async function upsertChunks(chunks: ChunkVector[]): Promise<void> {
   const index = await ensureIndex();
   await index.upsert(chunks);
+}
+
+/**
+ * Delete specific vectors by id (used when a report is erased). Pinecone
+ * serverless supports delete-by-id-list, so we pass the exact chunk ids that
+ * were stored for the report. No-op on an empty list.
+ */
+export async function deleteVectors(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const index = await ensureIndex();
+  await index.deleteMany(ids);
 }
 
 /** Query the index for the top-K most similar chunks to a query vector. */

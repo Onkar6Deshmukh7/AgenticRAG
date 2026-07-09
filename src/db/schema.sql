@@ -13,8 +13,12 @@ CREATE TABLE IF NOT EXISTS reports (
   report_markdown TEXT NOT NULL,
   severity VARCHAR(20),
   llm_provider VARCHAR(20),                  -- 'groq' or 'gemini'
+  vector_ids JSONB DEFAULT '[]'::jsonb,      -- Pinecone chunk ids for this report (RAG memory)
   generated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Idempotent add for databases created before vector_ids existed.
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS vector_ids JSONB DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS run_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -40,6 +40,19 @@ export class MetricWatcher extends EventEmitter {
    */
   private breachedMetrics = new Set<string>();
 
+  /**
+   * FRESH-DATA GATING. We must never fire off the snapshot that already
+   * existed when the user clicked Initialize — only off data that appears
+   * *after*. So the first evaluable poll just records a baseline (no latch),
+   * and thereafter the latch runs only when a genuinely new period arrives.
+   *   - baselineEstablished: has the first evaluable poll been seen yet?
+   *   - lastEvaluatedKey: the period (or poll count, for period-less
+   *     dashboards) we last ran the latch against — dedupes repeat polls of
+   *     the same period.
+   */
+  private baselineEstablished = false;
+  private lastEvaluatedKey: number | null = null;
+
   /** Typed emit helper so every event matches the SseEvent union. */
   private emitEvent(event: SseEvent): void {
     this.emit("sse", event);
@@ -68,7 +81,10 @@ export class MetricWatcher extends EventEmitter {
     this.running = true;
     this.totalPolls = 0;
     this.totalBreaches = 0;
+    this.reportsGenerated = 0;
     this.breachedMetrics.clear();
+    this.baselineEstablished = false;
+    this.lastEvaluatedKey = null;
 
     this.runId = await startRun(
       this.dashboardUrl,
@@ -146,6 +162,9 @@ export class MetricWatcher extends EventEmitter {
 
     let rawValues: Record<string, unknown> = {};
     let period: number | null = null;
+    // Default to "running" for the mock/flat shapes, which have no explicit
+    // running flag; shape 1 (the real dashboard) reports is_running directly.
+    let isRunning = true;
 
     if (Array.isArray(body.window)) {
       // Shape 1: rolling window — take the latest period.
@@ -155,7 +174,8 @@ export class MetricWatcher extends EventEmitter {
         rawValues = latest.values;
         period = typeof latest.period === "number" ? latest.period : null;
       }
-      // Empty window (simulation not started yet) → no values this poll.
+      // Empty window (simulation not started yet) → no values, not running.
+      isRunning = typeof body.is_running === "boolean" ? body.is_running : window.length > 0;
     } else if (body.values && typeof body.values === "object") {
       // Shape 2: single period with a values wrapper.
       rawValues = body.values as Record<string, unknown>;
@@ -172,7 +192,7 @@ export class MetricWatcher extends EventEmitter {
       if (Number.isFinite(num)) values[key] = num;
     }
 
-    return { period, values, timestamp: new Date().toISOString() };
+    return { period, isRunning, values, timestamp: new Date().toISOString() };
   }
 
   /** Is this value breaching its guardrail? */
@@ -188,16 +208,77 @@ export class MetricWatcher extends EventEmitter {
       : value <= g.threshold && value > g.threshold - margin;
   }
 
-  /** Apply the latch rules to every monitored metric for one poll. */
+  /**
+   * Process one poll. Two responsibilities, deliberately separated:
+   *   1. Update the live feed EVERY poll (compute statuses, emit poll/status)
+   *      so the UI always reflects the newest values.
+   *   2. Run the breach/recovery LATCH only on genuinely new live data —
+   *      never off the pre-existing snapshot at Initialize, and never twice
+   *      for the same period. See the gating comments below.
+   */
   private checkGuardrails(poll: PollResult): void {
+    // --- (1) Always refresh the feed -------------------------------------
     const statuses: Record<string, "ok" | "warning" | "breached"> = {};
-
     for (const g of this.guardrails) {
       const value = poll.values[g.metricKey];
       if (value === undefined) continue; // dashboard didn't report this metric
+      statuses[g.metricKey] = this.isBreached(value, g)
+        ? "breached"
+        : this.isNearThreshold(value, g)
+          ? "warning"
+          : "ok";
+    }
+    this.emitEvent({
+      event: "poll",
+      data: { period: poll.period, values: poll.values, statuses, timestamp: poll.timestamp },
+    });
+    this.emitEvent({ event: "status", data: this.getStatus() });
+
+    // --- (2) Decide whether to run the latch on this poll ----------------
+    // Don't evaluate a stopped/idle simulation — those are stale values.
+    if (!poll.isRunning) return;
+
+    // Dedupe key: real dashboards advance `period` ~every 10s (so repeated
+    // polls of the same period don't re-fire); period-less dashboards fall
+    // back to the poll counter so each distinct poll counts as new data.
+    const key = poll.period ?? this.totalPolls;
+
+    if (!this.baselineEstablished) {
+      // First evaluable poll = the snapshot that already existed at
+      // Initialize. Record it as the baseline and fire nothing. Crucially,
+      // SEED THE LATCH with any metric already breaching right now, so we only
+      // ever report NEW breaches that occur after monitoring starts — a
+      // pre-existing problem is treated as already-reported until it recovers
+      // and breaches again. This is what makes "monitor from here forward"
+      // behave intuitively and kills the false-fire-on-startup bug.
+      this.baselineEstablished = true;
+      this.lastEvaluatedKey = key;
+      for (const g of this.guardrails) {
+        const value = poll.values[g.metricKey];
+        if (value !== undefined && this.isBreached(value, g)) {
+          this.breachedMetrics.add(g.metricKey);
+          console.log(
+            `[watcher] ${g.metricKey} already breaching at start (value ${value}, guardrail ${g.direction} ${g.threshold}) — latched, no report until it recovers first.`
+          );
+        }
+      }
+      console.log(`[watcher] Baseline established at period ${poll.period ?? "n/a"} — monitoring new data from here.`);
+      return;
+    }
+    if (key === this.lastEvaluatedKey) return; // same period as last eval — skip
+    this.lastEvaluatedKey = key;
+
+    // --- (3) Fresh period: apply the latch to every metric ---------------
+    this.evaluateLatch(poll);
+  }
+
+  /** Apply the one-report-per-breach latch across all metrics for a fresh period. */
+  private evaluateLatch(poll: PollResult): void {
+    for (const g of this.guardrails) {
+      const value = poll.values[g.metricKey];
+      if (value === undefined) continue;
 
       const breached = this.isBreached(value, g);
-      statuses[g.metricKey] = breached ? "breached" : this.isNearThreshold(value, g) ? "warning" : "ok";
 
       if (breached && !this.breachedMetrics.has(g.metricKey)) {
         // FRESH breach: latch it and fire exactly one report.
@@ -225,12 +306,6 @@ export class MetricWatcher extends EventEmitter {
       // (breached && already latched) → still failing, already reported: do nothing.
       // (!breached && not latched)   → healthy: do nothing.
     }
-
-    this.emitEvent({
-      event: "poll",
-      data: { period: poll.period, values: poll.values, statuses, timestamp: poll.timestamp },
-    });
-    this.emitEvent({ event: "status", data: this.getStatus() });
   }
 
   /** Run the full RCA pipeline for one fresh breach. Never throws. */

@@ -96,6 +96,51 @@ export async function getReport(id: string): Promise<ReportRecord | null> {
   return memoryReports.find((r) => r.id === id) ?? null;
 }
 
+/**
+ * Attach the Pinecone chunk ids for a report after it's been ingested into
+ * the vector store, so a later delete can wipe those vectors too.
+ */
+export async function setReportVectorIds(id: string, vectorIds: string[]): Promise<void> {
+  if (!sql) return; // in-memory mode has no vectors to track
+  try {
+    await sql`UPDATE reports SET vector_ids = ${JSON.stringify(vectorIds)}::jsonb WHERE id = ${id}`;
+  } catch (err) {
+    warnFallback(err);
+  }
+}
+
+/**
+ * Delete a report from SQL + the in-memory fallback, returning its Pinecone
+ * vector ids so the caller can also purge the vector store. `found` tells the
+ * route whether to 404. This is the "no memory of it" erase path.
+ */
+export async function deleteReport(id: string): Promise<{ found: boolean; vectorIds: string[] }> {
+  let found = false;
+  let vectorIds: string[] = [];
+
+  // Remove from the in-memory fallback store, if present there.
+  const memIdx = memoryReports.findIndex((r) => r.id === id);
+  if (memIdx !== -1) {
+    memoryReports.splice(memIdx, 1);
+    found = true;
+  }
+
+  if (sql) {
+    try {
+      const rows = await sql`DELETE FROM reports WHERE id = ${id} RETURNING vector_ids`;
+      if (rows.length > 0) {
+        found = true;
+        const raw = (rows[0] as Record<string, unknown>).vector_ids;
+        if (Array.isArray(raw)) vectorIds = raw.map(String);
+      }
+    } catch (err) {
+      warnFallback(err);
+    }
+  }
+
+  return { found, vectorIds };
+}
+
 /** List all reports, newest first (for the report-history sidebar). */
 export async function listReports(): Promise<ReportRecord[]> {
   if (sql) {
