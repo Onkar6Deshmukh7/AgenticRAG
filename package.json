@@ -1,0 +1,35 @@
+{
+  "name": "agentic-rag-rca-tool",
+  "version": "1.0.0",
+  "description": "Agentic RAG-based Root Cause Analysis tool: monitors product metrics, detects guardrail breaches, and autonomously generates RCA reports using vector search + web search + LLMs.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrations.ts",
+    "ingest": "tsx src/vectordb/ingest.ts",
+    "mock-dashboard": "node scripts/mock-dashboard.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "@pinecone-database/pinecone": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "duck-duck-scrape": "^2.2.7",
+    "express": "^4.21.2",
+    "nodemailer": "^6.9.16",
+    "openai": "^4.87.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

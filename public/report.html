@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RCA Report Viewer</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --border: #2d333b;
+    --text: #e6edf3; --muted: #8b949e; --accent: #4493f8;
+    --green: #3fb950; --amber: #d29922; --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; min-height: 100vh;
+  }
+  .layout { display: flex; max-width: 1180px; margin: 0 auto; gap: 24px; padding: 28px 20px; }
+  .main { flex: 1; min-width: 0; }
+  .sidebar { width: 270px; flex-shrink: 0; }
+
+  /* Action bar */
+  .actions { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  button, .btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 9px 16px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  button:hover, .btn:hover { opacity: .88; }
+  button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .btn.secondary, button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+
+  /* Report header card */
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 22px; }
+  #report-header { display: none; margin-bottom: 18px; }
+  #report-header h1 { font-size: 19px; margin-bottom: 10px; }
+  .meta-row { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+  .chip { background: var(--panel2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 12px; color: var(--muted); }
+  .chip b { color: var(--text); font-weight: 600; }
+  .sev { border-radius: 20px; padding: 3px 12px; font-weight: 700; text-transform: uppercase; font-size: 11.5px; }
+  .sev-low { background: #16321f; color: var(--green); }
+  .sev-medium { background: #33290f; color: var(--amber); }
+  .sev-high { background: #3d1d1f; color: var(--red); }
+  .sev-critical { background: var(--red); color: #fff; }
+  .sev-generation_failed { background: var(--border); color: var(--muted); }
+
+  /* ------------------- Suspense / loading state ------------------- */
+  #suspense { transition: opacity .5s; }
+  .steps { margin-bottom: 26px; }
+  .step { display: flex; align-items: center; gap: 12px; padding: 9px 0; font-size: 14px; color: var(--muted); transition: color .3s; }
+  .step .icon { width: 22px; text-align: center; flex-shrink: 0; }
+  .step.active { color: var(--text); }
+  .step.active .spinner {
+    width: 13px; height: 13px; border: 2px solid var(--accent); border-top-color: transparent;
+    border-radius: 50%; animation: spin .8s linear infinite; display: inline-block;
+  }
+  .step.done { color: var(--green); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Skeleton document outline */
+  .skeleton .bar {
+    height: 13px; border-radius: 4px; margin-bottom: 12px;
+    background: linear-gradient(90deg, var(--panel2) 25%, #262c36 50%, var(--panel2) 75%);
+    background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton .h { width: 38%; height: 17px; margin: 22px 0 14px; }
+  .skeleton .w90 { width: 90%; } .skeleton .w75 { width: 75%; } .skeleton .w60 { width: 60%; } .skeleton .w82 { width: 82%; }
+
+  /* ------------------- Rendered report ------------------- */
+  #report-view { display: none; opacity: 0; transition: opacity .6s; line-height: 1.65; font-size: 14.5px; }
+  #report-view.visible { opacity: 1; }
+  #report-view h1 { font-size: 21px; margin: 6px 0 14px; }
+  #report-view h2 {
+    font-size: 16.5px; margin: 26px 0 10px; padding-bottom: 7px;
+    border-bottom: 1px solid var(--border); color: var(--accent);
+  }
+  #report-view h3 { font-size: 14.5px; margin: 18px 0 8px; }
+  #report-view p { margin-bottom: 11px; }
+  #report-view ul, #report-view ol { margin: 0 0 12px 24px; }
+  #report-view li { margin-bottom: 5px; }
+  #report-view code { background: var(--panel2); border-radius: 4px; padding: 1px 6px; font-size: 13px; }
+  #report-view pre { background: var(--panel2); border-radius: 6px; padding: 12px; overflow-x: auto; margin-bottom: 12px; }
+  #report-view blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--muted); margin-bottom: 12px; }
+  #report-view table { border-collapse: collapse; margin-bottom: 14px; width: 100%; font-size: 13.5px; }
+  #report-view th, #report-view td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  #report-view th { background: var(--panel2); }
+  #report-view strong { color: #fff; }
+  #report-view hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  /* Sidebar history */
+  .sidebar h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--muted); }
+  .hist-item {
+    display: block; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 11px 13px; margin-bottom: 8px; cursor: pointer;
+    text-decoration: none; color: var(--text); font-size: 13px; transition: border-color .15s;
+  }
+  .hist-item:hover, .hist-item.current { border-color: var(--accent); }
+  .hist-item .hm { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+  #hist-empty { color: var(--muted); font-size: 13px; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 20px; font-size: 13.5px; transition: transform .3s; z-index: 50;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.ok { border-color: var(--green); } #toast.err { border-color: var(--red); }
+
+  @media (max-width: 900px) { .layout { flex-direction: column; } .sidebar { width: 100%; } }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="main">
+    <div class="actions">
+      <a class="btn secondary" href="/">← Back to monitoring</a>
+      <button id="email-btn" style="display:none">Send via Email</button>
+    </div>
+
+    <!-- Report metadata header -->
+    <div class="card" id="report-header">
+      <h1 id="rh-title"></h1>
+      <div class="meta-row" id="rh-meta"></div>
+    </div>
+
+    <div class="card">
+      <!-- Suspense / loading state: shown while the pipeline runs -->
+      <div id="suspense">
+        <div class="steps">
+          <div class="step" id="step-vector_search"><span class="icon">🔍</span><span class="spinner" style="display:none"></span><span>Retrieving context from past reports…</span></div>
+          <div class="step" id="step-web_search"><span class="icon">🌐</span><span class="spinner" style="display:none"></span><span>Searching for external factors…</span></div>
+          <div class="step" id="step-llm_call"><span class="icon">🧠</span><span class="spinner" style="display:none"></span><span>Generating RCA report…</span></div>
+          <div class="step" id="step-done"><span class="icon">✅</span><span>Report ready</span></div>
+        </div>
+        <div class="skeleton">
+          <div class="bar h"></div>
+          <div class="bar w90"></div><div class="bar w82"></div><div class="bar w60"></div>
+          <div class="bar h"></div>
+          <div class="bar w75"></div><div class="bar w90"></div><div class="bar w82"></div><div class="bar w60"></div>
+          <div class="bar h"></div>
+          <div class="bar w90"></div><div class="bar w75"></div>
+        </div>
+      </div>
+
+      <!-- Rendered report -->
+      <div id="report-view"></div>
+    </div>
+  </div>
+
+  <!-- History sidebar -->
+  <div class="sidebar">
+    <h2>Report history</h2>
+    <div id="hist-list"><div id="hist-empty">No reports yet.</div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ==========================================================================
+   Report viewer. Two entry modes (via query string):
+     ?id=<uuid>          → load and render that report immediately
+     ?pending=<metric>   → suspense mode: listen on SSE for progress events,
+                           render the report when "complete" arrives.
+     (neither)           → show history; render the latest report if any.
+   ========================================================================== */
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let currentReportId = null;
+
+/* ---------------- Minimal markdown → HTML renderer ----------------
+   No CDN dependency: handles headings, bold/italic, inline + fenced code,
+   ordered/unordered lists, tables, blockquotes, hr, links, paragraphs.  */
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent)">$1</a>');
+}
+function renderMarkdown(md) {
+  const lines = escapeHtml(md.replace(/\r\n/g, "\n")).split("\n");
+  let html = "", i = 0;
+  const isTableRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  while (i < lines.length) {
+    let line = lines[i];
+    if (/^```/.test(line)) {                       // fenced code block
+      let code = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
+      i++; html += `<pre><code>${code.join("\n")}</code></pre>`;
+    } else if (/^#{1,4} /.test(line)) {            // headings
+      const level = line.match(/^#+/)[0].length;
+      html += `<h${level}>${inlineMd(line.replace(/^#+ /, ""))}</h${level}>`; i++;
+    } else if (/^(\*\*\*|---|___)\s*$/.test(line)) { html += "<hr>"; i++; }
+    else if (/^> /.test(line)) {                   // blockquote
+      let quote = [];
+      while (i < lines.length && /^> /.test(lines[i])) quote.push(lines[i++].slice(2));
+      html += `<blockquote>${inlineMd(quote.join(" "))}</blockquote>`;
+    } else if (isTableRow(line)) {                 // table
+      let rows = [];
+      while (i < lines.length && isTableRow(lines[i])) rows.push(lines[i++]);
+      const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => inlineMd(c.trim()));
+      let t = "<table>";
+      rows.forEach((r, ri) => {
+        if (/^[\s|:-]+$/.test(r)) return;          // separator row
+        const tag = ri === 0 ? "th" : "td";
+        t += "<tr>" + cells(r).map((c) => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+      });
+      html += t + "</table>";
+    } else if (/^\s*([-*+]|\d+\.) /.test(line)) {  // lists (with simple nesting)
+      const ordered = /^\s*\d+\. /.test(line);
+      const tag = ordered ? "ol" : "ul";
+      let items = [];
+      while (i < lines.length && /^\s*([-*+]|\d+\.) /.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*([-*+]|\d+\.) /, "")); i++;
+      }
+      html += `<${tag}>` + items.map((it) => `<li>${inlineMd(it)}</li>`).join("") + `</${tag}>`;
+    } else if (line.trim() === "") { i++; }
+    else {                                          // paragraph
+      let para = [];
+      while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,4} |```|> |\s*([-*+]|\d+\.) )/.test(lines[i]) && !isTableRow(lines[i]))
+        para.push(lines[i++]);
+      html += `<p>${inlineMd(para.join(" "))}</p>`;
+    }
+  }
+  return html;
+}
+
+/* ---------------- Rendering a report ---------------- */
+function fmt(n) {
+  if (n === undefined || n === null || !Number.isFinite(+n)) return "—";
+  n = +n;
+  return Math.abs(n) >= 1e9 ? (n / 1e9).toFixed(2) + "B"
+       : Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M"
+       : Math.abs(n) >= 1e4 ? Math.round(n).toLocaleString()
+       : +n.toFixed(2);
+}
+
+function showReport(report) {
+  currentReportId = report.id;
+  // Header
+  $("rh-title").textContent = `RCA Report — ${report.metricDisplayName}`;
+  $("rh-meta").innerHTML = `
+    <span class="chip">Breach value: <b>${fmt(report.breachValue)}</b></span>
+    <span class="chip">Guardrail: <b>${report.guardrailDirection} ${fmt(report.guardrailValue)}</b></span>
+    <span class="chip">Framework: <b>${report.framework.replace("_", " ")}</b></span>
+    <span class="chip">Provider: <b>${report.llmProvider}</b></span>
+    <span class="chip">${new Date(report.generatedAt).toLocaleString()}</span>
+    <span class="sev sev-${report.severity}">${report.severity.replace("_", " ")}</span>`;
+  $("report-header").style.display = "block";
+  $("email-btn").style.display = "inline-block";
+
+  // Fade the suspense out, the report in.
+  $("suspense").style.opacity = "0";
+  setTimeout(() => {
+    $("suspense").style.display = "none";
+    const view = $("report-view");
+    view.innerHTML = renderMarkdown(report.reportMarkdown);
+    view.style.display = "block";
+    requestAnimationFrame(() => view.classList.add("visible"));
+  }, 450);
+
+  loadHistory(); // refresh so the new report appears highlighted
+}
+
+async function loadReportById(id) {
+  const res = await fetch("/api/reports/" + encodeURIComponent(id));
+  if (!res.ok) { toast("Report not found.", false); return; }
+  showReport(await res.json());
+}
+
+/* ---------------- Suspense mode (SSE-driven) ---------------- */
+function setStep(step, state) { // state: "active" | "done"
+  const el = $("step-" + step);
+  if (!el) return;
+  el.classList.remove("active", "done");
+  el.classList.add(state);
+  const spinner = el.querySelector(".spinner");
+  if (spinner) spinner.style.display = state === "active" ? "inline-block" : "none";
+  const icon = el.querySelector(".icon");
+  if (state === "done" && icon) icon.textContent = "✓";
+}
+
+function startSuspenseMode(metricKey) {
+  setStep("vector_search", "active");
+  const sse = new EventSource("/api/reports/stream");
+  const order = ["vector_search", "web_search", "llm_call"];
+
+  sse.addEventListener("progress", (e) => {
+    const d = JSON.parse(e.data);
+    const idx = order.indexOf(d.step);
+    order.forEach((s, i) => setStep(s, i < idx ? "done" : i === idx ? "active" : ""));
+    // Update the active step's label with the live message (e.g. queued note).
+    const label = $("step-" + d.step)?.querySelector("span:last-child");
+    if (label) label.textContent = d.message;
+  });
+
+  sse.addEventListener("complete", async (e) => {
+    const d = JSON.parse(e.data);
+    order.forEach((s) => setStep(s, "done"));
+    setStep("done", "done");
+    sse.close();
+    clearInterval(fallbackPoll);
+    await loadReportById(d.reportId);
+  });
+
+  sse.addEventListener("error-event", () => {});
+  sse.addEventListener("error", (e) => {
+    if (e.data) { toast(JSON.parse(e.data).message, false); }
+  });
+
+  // Fallback: if this tab opened after "complete" fired (missed the event),
+  // poll the history every 5s for a fresh report on this metric.
+  const openedAt = Date.now();
+  const fallbackPoll = setInterval(async () => {
+    const res = await fetch("/api/reports");
+    const reports = await res.json();
+    const fresh = reports.find((r) =>
+      r.metricKey === metricKey && Date.now() - new Date(r.generatedAt).getTime() < 10 * 60 * 1000);
+    if (fresh) {
+      clearInterval(fallbackPoll); sse.close();
+      ["vector_search", "web_search", "llm_call"].forEach((s) => setStep(s, "done"));
+      setStep("done", "done");
+      await loadReportById(fresh.id);
+    } else if (Date.now() - openedAt > 6 * 60 * 1000) {
+      clearInterval(fallbackPoll); // give up after 6 minutes
+      toast("Report is taking unusually long — check the tool logs.", false);
+    }
+  }, 5000);
+}
+
+/* ---------------- History sidebar ---------------- */
+async function loadHistory() {
+  const res = await fetch("/api/reports");
+  const reports = await res.json();
+  if (reports.length === 0) return;
+  $("hist-list").innerHTML = reports.map((r) => `
+    <a class="hist-item ${r.id === currentReportId ? "current" : ""}" href="/report.html?id=${r.id}">
+      <div><b>${r.metricDisplayName}</b></div>
+      <div class="hm">${fmt(r.breachValue)} vs ${r.guardrailDirection} ${fmt(r.guardrailValue)} · severity: ${r.severity.replace("_", " ")}</div>
+      <div class="hm">${new Date(r.generatedAt).toLocaleString()}</div>
+    </a>`).join("");
+  return reports;
+}
+
+/* ---------------- Email ---------------- */
+$("email-btn").addEventListener("click", async () => {
+  if (!currentReportId) return;
+  const btn = $("email-btn");
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const res = await fetch(`/api/reports/${currentReportId}/email`, { method: "POST" });
+    const data = await res.json();
+    toast(data.ok ? `Email sent to ${data.recipient}` : data.error, data.ok);
+  } catch {
+    toast("Email failed — is the tool backend running?", false);
+  }
+  btn.disabled = false; btn.textContent = "Send via Email";
+});
+
+function toast(message, ok) {
+  const t = $("toast");
+  t.textContent = message;
+  t.className = ok ? "show ok" : "show err";
+  setTimeout(() => { t.className = ""; }, 4000);
+}
+
+/* ---------------- Boot ---------------- */
+(async function boot() {
+  const reports = await loadHistory();
+  if (params.get("id")) {
+    await loadReportById(params.get("id"));
+  } else if (params.get("pending")) {
+    startSuspenseMode(params.get("pending"));
+  } else if (reports && reports.length > 0) {
+    await loadReportById(reports[0].id); // no params: show the latest report
+  } else {
+    // Nothing to show yet: leave a friendly message in place of the skeleton.
+    document.querySelector(".steps").style.display = "none";
+    document.querySelector(".skeleton").innerHTML =
+      '<p style="color:var(--muted);font-size:14px">No reports yet. Start monitoring on the <a href="/" style="color:var(--accent)">setup page</a> — when a guardrail is breached, the report will appear here.</p>';
+  }
+})();
+</script>
+</body>
+</html>

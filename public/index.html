@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RCA Tool — Setup & Monitoring</title>
+<style>
+  /* ------------------------------------------------------------------ */
+  /* Clean SaaS-style theme, vanilla CSS only (no build tooling).        */
+  /* ------------------------------------------------------------------ */
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --border: #2d333b;
+    --text: #e6edf3; --muted: #8b949e; --accent: #4493f8;
+    --green: #3fb950; --amber: #d29922; --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    min-height: 100vh; padding-bottom: 70px;
+  }
+  .container { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin-bottom: 18px;
+  }
+  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  input[type="text"], input[type="number"] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 9px 12px; font-size: 14px; width: 100%;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+    white-space: nowrap; transition: opacity .15s;
+  }
+  button:hover { opacity: .88; }
+  button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--red); }
+  .conn-result { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .conn-ok { color: var(--green); } .conn-err { color: var(--red); }
+
+  /* Metric selector */
+  .metric-item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .metric-head {
+    display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+    cursor: pointer; user-select: none;
+  }
+  .metric-head:hover { background: var(--panel2); }
+  .metric-head input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .metric-name { font-size: 14px; font-weight: 500; flex: 1; }
+  .metric-unit { color: var(--muted); font-size: 12px; }
+  .metric-body {
+    display: none; padding: 12px 14px 14px 42px; border-top: 1px solid var(--border);
+    background: var(--panel2);
+  }
+  .metric-item.selected .metric-body { display: block; }
+  .guardrail-label { font-size: 12.5px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .metric-body input { max-width: 240px; }
+  .framework-tag {
+    font-size: 11px; color: var(--muted); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px;
+  }
+
+  /* Run controls */
+  .run-state { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .pulse-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,.5);} 50% { opacity:.6; box-shadow: 0 0 0 7px rgba(63,185,80,0);} }
+  .running-label { color: var(--green); font-weight: 600; font-size: 14px; }
+
+  /* Breach banner */
+  #breach-banner {
+    display: none; background: #3d1d1f; border: 1px solid var(--red);
+    border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+    font-size: 14px; align-items: center; gap: 12px;
+  }
+  #breach-banner.visible { display: flex; }
+  #breach-banner .spinner {
+    width: 15px; height: 15px; border: 2px solid var(--red); border-top-color: transparent;
+    border-radius: 50%; animation: spin .8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Live feed table */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .val-ok { color: var(--green); } .val-warning { color: var(--amber); } .val-breached { color: var(--red); font-weight: 700; }
+  #feed-empty { color: var(--muted); font-size: 13px; }
+  .log {
+    margin-top: 12px; max-height: 140px; overflow-y: auto; font-family: Consolas, monospace;
+    font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 6px; padding: 8px 12px;
+  }
+  .log .l-breach { color: var(--red); } .log .l-recovery { color: var(--green); }
+
+  /* Status bar */
+  #status-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel);
+    border-top: 1px solid var(--border); padding: 10px 24px; display: flex;
+    gap: 26px; font-size: 12.5px; color: var(--muted); flex-wrap: wrap;
+  }
+  #status-bar b { color: var(--text); font-weight: 600; }
+  .link { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Agentic RAG — Root Cause Analysis Tool</h1>
+  <p class="subtitle">Select metrics to monitor, set guardrails, and initialize. When a guardrail is breached, an RCA report is generated automatically. <a class="link" href="/report.html">View report history →</a></p>
+
+  <!-- Breach banner (hidden until a breach fires) -->
+  <div id="breach-banner">
+    <div class="spinner"></div>
+    <span id="breach-text"></span>
+  </div>
+
+  <!-- 1. Dashboard URL -->
+  <div class="card">
+    <h2>1 · Dashboard connection</h2>
+    <div class="row">
+      <input type="text" id="dashboard-url" placeholder="https://your-dashboard.vercel.app" />
+      <button class="secondary" id="test-btn">Test connection</button>
+    </div>
+    <div class="conn-result" id="conn-result"></div>
+  </div>
+
+  <!-- 2. Metric selector -->
+  <div class="card">
+    <h2>2 · Metrics & guardrails</h2>
+    <div id="metric-list"></div>
+  </div>
+
+  <!-- 3. Initialize -->
+  <div class="card">
+    <h2>3 · Run</h2>
+    <div class="run-state" id="run-idle">
+      <button id="init-btn" disabled>Initialize tool</button>
+      <span style="color:var(--muted);font-size:13px" id="init-hint">Select at least one metric first.</span>
+    </div>
+    <div class="run-state" id="run-active" style="display:none">
+      <div class="pulse-dot"></div>
+      <span class="running-label" id="running-label">Tool running</span>
+      <button class="danger" id="stop-btn">Stop</button>
+    </div>
+  </div>
+
+  <!-- Live feed -->
+  <div class="card">
+    <h2>Live feed</h2>
+    <div id="feed-empty">Waiting for first poll…</div>
+    <table id="feed-table" style="display:none">
+      <thead><tr><th>Metric</th><th>Value</th><th>Guardrail</th><th>Status</th></tr></thead>
+      <tbody id="feed-body"></tbody>
+    </table>
+    <div class="log" id="event-log"></div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <span>Status: <b id="sb-conn">idle</b></span>
+  <span>Last poll: <b id="sb-poll">—</b></span>
+  <span>Interval: <b id="sb-interval">10s</b></span>
+  <span>Polls: <b id="sb-polls">0</b></span>
+  <span>Reports generated: <b id="sb-reports">0</b></span>
+  <span>LLM quota: <b id="sb-quota">—</b></span>
+</div>
+
+<script>
+/* ==========================================================================
+   Setup page logic (vanilla JS):
+   1. Load the metric catalog and build the checkbox list.
+   2. Test-connection button probes the dashboard.
+   3. Initialize posts guardrails and opens the SSE stream.
+   4. SSE events drive the live feed, status bar, and breach banner.
+   ========================================================================== */
+const $ = (id) => document.getElementById(id);
+let catalog = [];            // metric catalog from the server
+let guardrailsByKey = {};    // metricKey -> latest guardrail (for the feed table)
+let sse = null;
+
+/* ---------- 1. Build the metric list ---------- */
+async function loadCatalog() {
+  const res = await fetch("/api/metrics");
+  const data = await res.json();
+  catalog = data.metrics;
+  if (data.dashboardUrl) $("dashboard-url").value = data.dashboardUrl;
+
+  $("metric-list").innerHTML = catalog.map((m) => `
+    <div class="metric-item" id="mi-${m.key}">
+      <label class="metric-head">
+        <input type="checkbox" data-key="${m.key}" class="metric-check" />
+        <span class="metric-name">${m.displayName}</span>
+        <span class="framework-tag">${m.framework.replace("_", " ")}</span>
+        <span class="metric-unit">${m.unit}</span>
+      </label>
+      <div class="metric-body">
+        <label class="guardrail-label">
+          ${m.direction === "min" ? "Minimum threshold" : "Maximum threshold"} (${m.unit})
+          — breach when value goes ${m.direction === "min" ? "below" : "above"} this
+        </label>
+        <input type="number" step="any" class="guardrail-input" data-key="${m.key}" value="${m.defaultGuardrail}" />
+      </div>
+    </div>`).join("");
+
+  document.querySelectorAll(".metric-check").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      $("mi-" + cb.dataset.key).classList.toggle("selected", cb.checked);
+      updateInitButton();
+    });
+  });
+  document.querySelectorAll(".guardrail-input").forEach((inp) =>
+    inp.addEventListener("input", updateInitButton));
+}
+
+function selectedGuardrails() {
+  return [...document.querySelectorAll(".metric-check:checked")].map((cb) => {
+    const input = document.querySelector(`.guardrail-input[data-key="${cb.dataset.key}"]`);
+    return { metricKey: cb.dataset.key, threshold: parseFloat(input.value) };
+  }).filter((g) => Number.isFinite(g.threshold));
+}
+
+function updateInitButton() {
+  const count = selectedGuardrails().length;
+  $("init-btn").disabled = count === 0;
+  $("init-hint").textContent = count === 0
+    ? "Select at least one metric first."
+    : `${count} metric(s) selected.`;
+}
+
+/* ---------- 2. Test connection ---------- */
+$("test-btn").addEventListener("click", async () => {
+  const el = $("conn-result");
+  el.textContent = "Testing…"; el.className = "conn-result";
+  try {
+    const res = await fetch("/api/test-connection?url=" + encodeURIComponent($("dashboard-url").value));
+    const data = await res.json();
+    el.textContent = data.ok ? "✓ Connected — dashboard is reachable" : "✗ " + data.error;
+    el.className = "conn-result " + (data.ok ? "conn-ok" : "conn-err");
+  } catch {
+    el.textContent = "✗ Could not reach the tool backend"; el.className = "conn-result conn-err";
+  }
+});
+
+/* ---------- 3. Initialize / Stop ---------- */
+$("init-btn").addEventListener("click", async () => {
+  const guardrails = selectedGuardrails();
+  guardrails.forEach((g) => { guardrailsByKey[g.metricKey] = g.threshold; });
+  const res = await fetch("/api/initialize", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dashboardUrl: $("dashboard-url").value, guardrails }),
+  });
+  const data = await res.json();
+  if (!data.ok) { alert(data.error); return; }
+  setRunning(true, guardrails.length);
+  connectSse();
+});
+
+$("stop-btn").addEventListener("click", async () => {
+  await fetch("/api/stop", { method: "POST" });
+  setRunning(false);
+});
+
+function setRunning(running, count) {
+  $("run-idle").style.display = running ? "none" : "flex";
+  $("run-active").style.display = running ? "flex" : "none";
+  if (running) $("running-label").textContent = `Tool running — monitoring ${count} metric${count === 1 ? "" : "s"}`;
+}
+
+/* ---------- 4. SSE: live events from the backend ---------- */
+function connectSse() {
+  if (sse) return;
+  sse = new EventSource("/api/reports/stream");
+
+  sse.addEventListener("poll", (e) => {
+    const d = JSON.parse(e.data);
+    renderFeed(d);
+    logLine(`poll · period ${d.period ?? "?"} · ${new Date(d.timestamp).toLocaleTimeString()}`);
+  });
+
+  sse.addEventListener("breach", (e) => {
+    const d = JSON.parse(e.data);
+    $("breach-text").textContent =
+      `⚠ Breach detected: ${d.metric} = ${fmt(d.value)} (guardrail: ${d.direction} ${fmt(d.guardrail)}). Generating RCA report…`;
+    $("breach-banner").classList.add("visible");
+    logLine(`BREACH · ${d.metric} = ${fmt(d.value)} (guardrail: ${d.direction} ${fmt(d.guardrail)})`, "l-breach");
+    // Transition to the report viewer in suspense mode after a beat so the
+    // user sees the banner appear first.
+    setTimeout(() => { window.location.href = `/report.html?pending=${encodeURIComponent(d.metric)}`; }, 1600);
+  });
+
+  sse.addEventListener("recovery", (e) => {
+    const d = JSON.parse(e.data);
+    logLine(`✓ ${d.metric} recovered (value: ${fmt(d.value)}, guardrail: ${fmt(d.guardrail)})`, "l-recovery");
+  });
+
+  sse.addEventListener("status", (e) => {
+    const s = JSON.parse(e.data);
+    $("sb-conn").textContent = !s.running ? "idle" : s.dashboardConnected ? "connected" : "dashboard disconnected — retrying every 30s";
+    $("sb-poll").textContent = s.lastPollAt ? new Date(s.lastPollAt).toLocaleTimeString() : "—";
+    $("sb-interval").textContent = (s.pollIntervalMs / 1000) + "s";
+    $("sb-polls").textContent = s.totalPolls;
+    $("sb-reports").textContent = s.reportsGenerated;
+    if (s.running) {
+      setRunning(true, s.monitoredMetrics.length);
+      s.monitoredMetrics.forEach((g) => { guardrailsByKey[g.metricKey] = g.threshold; });
+    }
+  });
+
+  sse.onerror = () => { $("sb-conn").textContent = "reconnecting…"; };
+}
+
+function renderFeed(d) {
+  const rows = Object.entries(d.statuses).map(([key, status]) => {
+    const m = catalog.find((c) => c.key === key) || { displayName: key, unit: "", direction: "min" };
+    return `<tr>
+      <td>${m.displayName}</td>
+      <td class="val-${status}">${fmt(d.values[key])} ${m.unit}</td>
+      <td>${m.direction} ${fmt(guardrailsByKey[key])}</td>
+      <td class="val-${status}">${status === "ok" ? "● within guardrails" : status === "warning" ? "● near threshold" : "● BREACHED"}</td>
+    </tr>`;
+  }).join("");
+  $("feed-empty").style.display = "none";
+  $("feed-table").style.display = "table";
+  $("feed-body").innerHTML = rows;
+}
+
+function logLine(text, cls) {
+  const log = $("event-log");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  log.prepend(div);
+  while (log.children.length > 60) log.lastChild.remove();
+}
+
+function fmt(n) {
+  if (n === undefined || n === null || !Number.isFinite(n)) return "—";
+  return Math.abs(n) >= 1e9 ? (n / 1e9).toFixed(2) + "B"
+       : Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M"
+       : Math.abs(n) >= 1e4 ? Math.round(n).toLocaleString()
+       : +n.toFixed(2);
+}
+
+/* ---------- LLM quota in the status bar (refresh every 30s) ---------- */
+async function refreshQuota() {
+  try {
+    const res = await fetch("/api/rate-limits");
+    const q = await res.json();
+    $("sb-quota").textContent = `Groq ${q.groq.dailyUsed}/${q.groq.dailyLimit} · Gemini ${q.gemini.dailyUsed}/${q.gemini.dailyLimit}`;
+  } catch { /* backend briefly unavailable — ignore */ }
+}
+
+/* ---------- Boot ---------- */
+loadCatalog();
+refreshQuota();
+setInterval(refreshQuota, 30000);
+// If the tool is already running (page refresh), re-attach to the stream.
+fetch("/api/status").then((r) => r.json()).then((s) => { if (s.running) { setRunning(true, s.monitoredMetrics.length); connectSse(); } });
+</script>
+</body>
+</html>
