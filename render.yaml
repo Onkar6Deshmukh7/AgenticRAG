@@ -1,0 +1,15 @@
+# Render deploy config — https://render.com/docs/blueprint-spec
+# This lets Render auto-configure the service instead of typing build/start
+# commands by hand in the dashboard. Environment variables (API keys) are
+# NOT included here on purpose — set those manually in the Render dashboard
+# so real secrets never live in the git repo.
+services:
+  - type: web
+    name: agentic-rag-rca-tool
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20

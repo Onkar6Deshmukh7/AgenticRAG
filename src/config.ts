@@ -33,7 +33,9 @@ export const ENV = {
 // General tool configuration
 // ---------------------------------------------------------------------------
 export const CONFIG = {
-  TOOL_PORT: 3000,
+  // Hosts like Render/Railway assign their own port via process.env.PORT —
+  // the app must listen on that, falling back to 3000 for local dev.
+  TOOL_PORT: Number(process.env.PORT ?? 3000),
   POLL_INTERVAL_MS: 10_000, // matches the dashboard's 10-second period
   DISCONNECTED_RETRY_MS: 30_000, // slower retry while the dashboard is unreachable
   PINECONE_INDEX_NAME: "rca-reports",
