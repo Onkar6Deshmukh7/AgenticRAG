@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1740px; height: 1220px; }
+  body {
+    font-family: "Segoe UI", system-ui, Arial, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+  }
+  .stage { width: 1740px; height: 1220px; padding: 34px 40px; }
+  .mono { font-family: "Cascadia Code", Consolas, "Courier New", monospace; }
+
+  .header { text-align: center; margin-bottom: 22px; }
+  .header h1 { font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+  .header p { font-size: 16px; color: #94a3b8; margin-top: 4px; }
+
+  .grid { display: flex; gap: 26px; height: 1080px; }
+
+  /* ---------- Left: directory tree ---------- */
+  .tree {
+    width: 470px; flex-shrink: 0; background: #111827; border: 1px solid #1f2a3d;
+    border-radius: 14px; padding: 20px 22px;
+  }
+  .panel-title { font-size: 14px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1px; color: #60a5fa; margin-bottom: 14px; }
+  .tree pre { font-size: 14.5px; line-height: 1.62; color: #cbd5e1; white-space: pre; }
+  .tree .dir { color: #f59e0b; font-weight: 700; }
+  .tree .file { color: #e2e8f0; }
+  .tree .cmt { color: #64748b; }
+  .tree .star { color: #34d399; }
+
+  /* ---------- Right: architecture ---------- */
+  .arch { flex: 1; display: flex; flex-direction: column; gap: 0; }
+
+  .band {
+    background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+    padding: 14px 20px; position: relative;
+  }
+  .band .row { display: flex; align-items: center; gap: 16px; }
+  .band .left { flex: 1; }
+  .band h3 { font-size: 19px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .band .files { font-size: 13.5px; color: #7dd3fc; margin-top: 3px; }
+  .band .desc { font-size: 13.5px; color: #94a3b8; margin-top: 5px; line-height: 1.45; }
+  .tagbadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+
+  /* external service chips docked on the right of a band */
+  .ext { display: flex; flex-direction: column; gap: 8px; width: 430px; flex-shrink: 0; }
+  .chip {
+    background: #0b1220; border: 1px solid #334155; border-radius: 10px;
+    padding: 8px 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .chip .cn { font-size: 14px; font-weight: 700; color: #fff; }
+  .chip .cd { font-size: 12px; color: #94a3b8; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .chip .flow { font-size: 11px; color: #64748b; margin-left: auto; text-align: right; white-space: nowrap; }
+
+  .d-blue { background: #3b82f6; } .d-green { background: #22c55e; }
+  .d-amber { background: #f59e0b; } .d-purple { background: #a855f7; }
+  .d-pink { background: #ec4899; } .d-cyan { background: #06b6d4; } .d-red { background:#ef4444; }
+
+  /* vertical arrows between bands */
+  .arrow { display: flex; justify-content: center; align-items: center; height: 40px; position: relative; }
+  .arrow .lbl {
+    font-size: 12.5px; color: #cbd5e1; background: #0f172a; padding: 2px 12px;
+    border: 1px solid #334155; border-radius: 20px; position: relative; z-index: 2;
+  }
+  .arrow::before {
+    content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 3px;
+    background: #475569; transform: translateX(-50%); z-index: 1;
+  }
+  .arrow::after {
+    content: ""; position: absolute; left: 50%; bottom: 2px; width: 0; height: 0;
+    border-left: 7px solid transparent; border-right: 7px solid transparent;
+    border-top: 9px solid #475569; transform: translateX(-50%); z-index: 1;
+  }
+
+  .badge-num { background: #334155; color:#fff; width: 26px; height: 26px; border-radius: 7px;
+    display:inline-flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; }
+
+  .legend { display: flex; gap: 18px; justify-content: center; margin-top: 14px; font-size: 12.5px; color: #94a3b8; }
+  .legend b { color: #e2e8f0; }
+
+  .render-badge { position:absolute; top:14px; right:20px; font-size:12px; color:#34d399;
+    border:1px solid #14532d; background:#052e1a; border-radius:20px; padding:3px 12px; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="header">
+    <h1>Agentic RAG RCA Tool — Technical Architecture &amp; Data Flow</h1>
+    <p>TypeScript · Node / Express (ESM) · Server-Sent Events · deployed on Render &nbsp;|&nbsp; repo: Onkar6Deshmukh7/AgenticRAG</p>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: directory tree -->
+    <div class="tree">
+      <div class="panel-title">📁 Project Structure</div>
+      <pre><span class="dir">src/</span>
+├─ <span class="file">index.ts</span>            <span class="cmt"># Express entry + boot</span>
+├─ <span class="file">config.ts</span>           <span class="cmt"># METRIC_CATALOG, env, ports</span>
+├─ <span class="file">types.ts</span>            <span class="cmt"># shared interfaces</span>
+├─ <span class="dir">server/</span>
+│   └─ <span class="file">routes.ts</span>       <span class="cmt"># REST API + SSE stream</span>
+├─ <span class="dir">watcher/</span>
+│   └─ <span class="file">metricWatcher.ts</span> <span class="cmt"># poll loop + breach latch</span>
+├─ <span class="dir">rca/</span>              <span class="cmt"># the agentic pipeline</span>
+│   ├─ <span class="file">contextGatherer.ts</span> <span class="cmt"># RAG + web</span>
+│   ├─ <span class="file">frameworkSelector.ts</span>
+│   ├─ <span class="file">promptBuilder.ts</span>
+│   └─ <span class="file">reportGenerator.ts</span> <span class="cmt"># LLM calls</span>
+├─ <span class="dir">vectordb/</span>
+│   ├─ <span class="file">pinecone.ts</span>     <span class="cmt"># index + query</span>
+│   ├─ <span class="file">embeddings.ts</span>   <span class="cmt"># Google embed</span>
+│   └─ <span class="file">ingest.ts</span>       <span class="star"># npm run ingest</span>
+├─ <span class="dir">db/</span>
+│   ├─ <span class="file">neon.ts</span>         <span class="cmt"># Postgres client</span>
+│   ├─ <span class="file">schema.sql</span>      <span class="cmt"># reports, run_history</span>
+│   └─ <span class="file">migrations.ts</span>   <span class="star"># npm run migrate</span>
+├─ <span class="dir">rateLimiter/</span>
+│   └─ <span class="file">rateLimiter.ts</span>  <span class="cmt"># token bucket / provider</span>
+└─ <span class="dir">delivery/</span>
+    └─ <span class="file">emailSender.ts</span>  <span class="cmt"># Gmail SMTP (manual)</span>
+
+<span class="dir">public/</span>
+├─ <span class="file">index.html</span>          <span class="cmt"># setup + live monitor</span>
+└─ <span class="file">report.html</span>         <span class="cmt"># viewer + suspense UI</span>
+
+<span class="dir">sample-reports/</span>        <span class="cmt"># 3 past RCAs (RAG corpus)</span>
+<span class="dir">scripts/</span><span class="file">mock-dashboard.mjs</span>  <span class="cmt"># offline test</span>
+<span class="file">render.yaml</span>  <span class="file">package.json</span>  <span class="file">.env</span></pre>
+    </div>
+
+    <!-- RIGHT: architecture flow -->
+    <div class="arch">
+
+      <!-- Band 1: Browser -->
+      <div class="band">
+        <div class="row">
+          <div class="left">
+            <h3>🖥️ Browser <span class="tagbadge" style="background:#1e3a8a;color:#bfdbfe">CLIENT</span></h3>
+            <div class="files mono">public/index.html · public/report.html</div>
+            <div class="desc">Vanilla JS. Setup page picks metrics + guardrails; report viewer renders markdown with a live suspense animation.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><span class="lbl mono">fetch → POST /api/initialize &nbsp;·&nbsp; EventSource → GET /api/reports/stream (SSE)</span></div>
+
+      <!-- Band 2: Express -->
+      <div class="band">
+        <span class="render-badge">▲ hosted on Render</span>
+        <div class="row">
+          <div class="left">
+            <h3>⚙️ Express Server <span class="tagbadge" style="background:#334155;color:#e2e8f0">Node · ESM</span></h3>
+            <div class="files mono">src/index.ts → src/server/routes.ts</div>
+            <div class="desc mono" style="color:#7dd3fc">/api/metrics · /api/initialize · /api/stop · /api/status · /api/reports · /api/reports/:id/email · /api/rate-limits</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><span class="lbl">starts the polling loop on “Initialize”</span></div>
+
+      <!-- Band 3: Watcher -->
+      <div class="band">
+        <div class="row">
+          <div class="left">
+            <h3>📡 Metric Watcher</h3>
+            <div class="files mono">src/watcher/metricWatcher.ts</div>
+            <div class="desc">Polls every 10s. Compares to guardrail. <b style="color:#e2e8f0">One-report-per-breach latch</b> (<span class="mono">Set&lt;string&gt;</span>): breach → 1 report → silence → recovery re-arms.</div>
+          </div>
+          <div class="ext">
+            <div class="chip">
+              <span class="dot d-cyan"></span>
+              <div><div class="cn">Vercel Dashboard</div><div class="cd">external product-metrics simulator</div></div>
+              <span class="flow mono">GET /api/metrics/live<br>every 10s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><span class="lbl" style="color:#fca5a5;border-color:#7f1d1d">on breach → run RCA pipeline</span></div>
+
+      <!-- Band 4: RCA pipeline -->
+      <div class="band" style="border-color:#a16207;background:#20242e">
+        <div class="row">
+          <div class="left">
+            <h3>🧠 RCA Pipeline <span class="tagbadge" style="background:#78350f;color:#fde68a">AGENTIC</span></h3>
+            <div class="files mono">src/rca/ &nbsp;contextGatherer → frameworkSelector → promptBuilder → reportGenerator</div>
+            <div class="desc"><b style="color:#fde68a">① Retrieve</b> past-report chunks &nbsp; <b style="color:#fde68a">② Augment</b> with web results &nbsp; <b style="color:#fde68a">③ Frame</b> (MECE / Fishbone / Funnel) &nbsp; <b style="color:#fde68a">④ Generate</b></div>
+          </div>
+          <div class="ext">
+            <div class="chip">
+              <span class="dot d-green"></span>
+              <div><div class="cn">Pinecone</div><div class="cd mono">vectordb/ · gemini-embedding-001 (3072d)</div></div>
+              <span class="flow mono">embed + top-5<br>vector search</span>
+            </div>
+            <div class="chip">
+              <span class="dot d-amber"></span>
+              <div><div class="cn">DuckDuckGo</div><div class="cd mono">duck-duck-scrape</div></div>
+              <span class="flow mono">web search<br>external factors</span>
+            </div>
+            <div class="chip">
+              <span class="dot d-purple"></span>
+              <div><div class="cn">Groq → Gemini</div><div class="cd mono">llama-3.3-70b → gemini-2.5-flash-lite</div></div>
+              <span class="flow mono">chat completions<br>via rateLimiter/</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><span class="lbl">save report + stream progress back to browser</span></div>
+
+      <!-- Band 5: storage + delivery -->
+      <div class="band">
+        <div class="row">
+          <div class="left">
+            <h3>💾 Storage &amp; Delivery</h3>
+            <div class="files mono">src/db/neon.ts · src/delivery/emailSender.ts</div>
+            <div class="desc">Report persisted, then SSE <span class="mono" style="color:#7dd3fc">complete</span> event opens report.html. In-memory fallback if DB down.</div>
+          </div>
+          <div class="ext">
+            <div class="chip">
+              <span class="dot d-blue"></span>
+              <div><div class="cn">Neon Postgres</div><div class="cd mono">tables: reports · run_history</div></div>
+              <span class="flow mono">@neondatabase<br>/serverless (HTTP)</span>
+            </div>
+            <div class="chip">
+              <span class="dot d-pink"></span>
+              <div><div class="cn">Gmail SMTP</div><div class="cd">nodemailer — user click only</div></div>
+              <span class="flow mono">POST /api/<br>reports/:id/email</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span>🔑 Free tiers: <b>Groq · Google AI Studio · Pinecone · Neon</b></span>
+        <span>·</span>
+        <span>Resilience: <b>every external call degrades gracefully — the watcher never crashes</b></span>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

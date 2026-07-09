@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 800px; }
+  body {
+    font-family: "Segoe UI", system-ui, Arial, sans-serif;
+    background: linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
+    color: #0f172a;
+  }
+  .stage { position: relative; width: 1600px; height: 800px; padding: 36px 60px 0; }
+
+  .header { text-align: center; margin-bottom: 24px; }
+  .header h1 { font-size: 38px; font-weight: 800; letter-spacing: -0.5px; }
+  .header h1 .accent { color: #2563eb; }
+  .header p { font-size: 18px; color: #64748b; margin-top: 6px; font-weight: 500; }
+
+  .connectors { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+
+  .row { position: relative; z-index: 1; display: flex; gap: 78px; margin-top: 8px; }
+  .card {
+    width: 322px; background: #fff; border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(15,23,42,0.08); overflow: hidden;
+    border: 1px solid #e2e8f0; display: flex; flex-direction: column; min-height: 300px;
+  }
+  .bar { height: 8px; }
+  .card-body { padding: 22px 24px 24px; }
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border-radius: 12px; color: #fff;
+    font-size: 22px; font-weight: 800; margin-bottom: 14px;
+  }
+  .icon { font-size: 34px; float: right; margin-top: -54px; }
+  .card h2 { font-size: 23px; font-weight: 700; margin-bottom: 10px; }
+  .card p { font-size: 16px; line-height: 1.5; color: #475569; }
+  .card ul { margin: 10px 0 0 4px; list-style: none; }
+  .card li { font-size: 15px; color: #334155; line-height: 1.7; padding-left: 24px; position: relative; }
+  .card li::before { content: "→"; position: absolute; left: 0; color: #d97706; font-weight: 700; }
+
+  .c1 .bar { background: #2563eb; } .c1 .badge { background: #2563eb; }
+  .c2 .bar { background: #16a34a; } .c2 .badge { background: #16a34a; }
+  .c3 .bar { background: #d97706; } .c3 .badge { background: #d97706; }
+  .c4 .bar { background: #7c3aed; } .c4 .badge { background: #7c3aed; }
+
+  .breach-label {
+    position: absolute; left: 758px; top: 352px; width: 104px; text-align: center;
+    font-size: 15px; color: #dc2626; font-weight: 800; z-index: 5; line-height: 1.1;
+  }
+  .loop-label {
+    position: absolute; left: 360px; top: 590px; width: 460px; text-align: center;
+    font-size: 16px; color: #16a34a; font-weight: 700;
+  }
+
+  .footer {
+    position: absolute; left: 60px; right: 60px; top: 648px;
+    background: #0f172a; color: #e2e8f0; border-radius: 16px;
+    padding: 22px 32px; display: flex; align-items: center; gap: 26px;
+  }
+  .footer .q { font-size: 21px; font-weight: 800; color: #fff; white-space: nowrap; }
+  .footer .a { font-size: 16px; line-height: 1.45; color: #cbd5e1; }
+  .footer .a b { color: #fff; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="header">
+    <h1>Agentic <span class="accent">RAG</span> — Root Cause Analysis Tool</h1>
+    <p>How it works, end to end — a tool that watches your metrics and explains problems on its own</p>
+  </div>
+
+  <svg class="connectors" viewBox="0 0 1600 800">
+    <defs>
+      <marker id="arr" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L9,4 L0,8 Z" fill="#94a3b8"/>
+      </marker>
+      <marker id="arrRed" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L9,4 L0,8 Z" fill="#dc2626"/>
+      </marker>
+      <marker id="arrGreen" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L9,4 L0,8 Z" fill="#16a34a"/>
+      </marker>
+    </defs>
+    <line x1="382" y1="430" x2="456" y2="430" stroke="#94a3b8" stroke-width="4" marker-end="url(#arr)"/>
+    <line x1="782" y1="430" x2="856" y2="430" stroke="#dc2626" stroke-width="4" marker-end="url(#arrRed)"/>
+    <line x1="1182" y1="430" x2="1256" y2="430" stroke="#94a3b8" stroke-width="4" marker-end="url(#arr)"/>
+    <!-- monitoring loop under card 2 -->
+    <path d="M 700 478 C 768 580, 396 580, 470 482"
+          fill="none" stroke="#16a34a" stroke-width="4" marker-end="url(#arrGreen)"/>
+  </svg>
+
+  <div class="breach-label">⚠<br>BREACH</div>
+
+  <div class="row">
+    <div class="card c1">
+      <div class="bar"></div>
+      <div class="card-body">
+        <div class="badge">1</div><div class="icon">🎛️</div>
+        <h2>Set Up</h2>
+        <p>You choose which product metrics to track and set a <b>guardrail</b> — a safe limit — for each one.</p>
+      </div>
+    </div>
+    <div class="card c2">
+      <div class="bar"></div>
+      <div class="card-body">
+        <div class="badge">2</div><div class="icon">📡</div>
+        <h2>Monitor</h2>
+        <p>The tool watches your live dashboard <b>every 10 seconds</b>, checking each metric against its guardrail.</p>
+      </div>
+    </div>
+    <div class="card c3">
+      <div class="bar"></div>
+      <div class="card-body">
+        <div class="badge">3</div><div class="icon">🔎</div>
+        <h2>Investigate</h2>
+        <p>The instant a guardrail breaks, the AI investigates <b>on its own</b>:</p>
+        <ul>
+          <li>Recalls past incident reports</li>
+          <li>Searches the web for outside factors</li>
+          <li>Picks the right analysis method</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card c4">
+      <div class="bar"></div>
+      <div class="card-body">
+        <div class="badge">4</div><div class="icon">📄</div>
+        <h2>Report</h2>
+        <p>A clear, structured root-cause report appears in your browser — with a live "thinking" animation. Send it by email in one click.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="loop-label">🔁 Repeats every 10 seconds while all metrics stay healthy</div>
+
+  <div class="footer">
+    <div class="q">Why “agentic”?</div>
+    <div class="a">Once you hit start, the tool <b>decides when to act</b> and <b>gathers its own context</b> — no one has to prompt it. It notices the problem, investigates, and writes the explanation automatically.</div>
+  </div>
+</div>
+</body>
+</html>
