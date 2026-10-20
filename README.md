@@ -51,15 +51,14 @@ Dashboard ──poll 10s──▶ Metric Watcher ──breach──▶ RCA Pipel
 
        npm run ingest
 
-6. Make sure your dashboard is running (Vercel URL or localhost:8000).
+6. Open your dashboard (Vercel URL or localhost:8000) and click **"Start simulation."** Leave it running while the RCA tool monitors it.
 7. Start the tool:
 
        npm run dev
 
 8. Open http://localhost:3000 in your browser.
 9. Select metrics, set guardrails, click **"Initialize tool."**
-10. On the dashboard, start a simulation and wait for the guardrail breach.
-    The tool will detect it and generate an RCA report automatically — the
+10. Wait for a guardrail breach. The tool will detect it and generate an RCA report automatically — the
     browser transitions to the report viewer with a live progress animation.
 
 ## Testing without your real dashboard

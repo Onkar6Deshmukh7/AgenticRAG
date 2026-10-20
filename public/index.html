@@ -33,17 +33,20 @@
     border-radius: 6px; padding: 9px 12px; font-size: 14px; width: 100%;
   }
   input:focus { outline: none; border-color: var(--accent); }
-  button {
+  button, .button-link {
     background: var(--accent); color: #fff; border: none; border-radius: 6px;
     padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
-    white-space: nowrap; transition: opacity .15s;
+    white-space: nowrap; transition: opacity .15s; text-decoration: none;
   }
-  button:hover { opacity: .88; }
+  button:hover, .button-link:hover { opacity: .88; }
   button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
   button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
   button.danger { background: var(--red); }
-  .conn-result { font-size: 13px; margin-top: 8px; min-height: 18px; }
-  .conn-ok { color: var(--green); } .conn-err { color: var(--red); }
+  .button-link[aria-disabled="true"] {
+    background: var(--border); color: var(--muted); cursor: not-allowed;
+    pointer-events: none;
+  }
+  .dashboard-instructions { color: var(--muted); font-size: 13px; margin: -4px 0 12px; }
 
   /* Metric selector */
   .metric-item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
@@ -137,12 +140,12 @@
 
   <!-- 1. Dashboard URL -->
   <div class="card">
-    <h2>1 · Dashboard connection</h2>
+    <h2>1 · Initialize the dummy dashboard</h2>
+    <p class="dashboard-instructions">First, open the dashboard and click <strong>Start simulation</strong>. Leave it running, then return here to configure monitoring.</p>
     <div class="row">
       <input type="text" id="dashboard-url" placeholder="https://your-dashboard.vercel.app" />
-      <button class="secondary" id="test-btn">Test connection</button>
+      <a class="button-link" id="open-dashboard-btn" target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">Open dummy dashboard</a>
     </div>
-    <div class="conn-result" id="conn-result"></div>
   </div>
 
   <!-- 2. Metric selector -->
@@ -191,7 +194,7 @@
 /* ==========================================================================
    Setup page logic (vanilla JS):
    1. Load the metric catalog and build the checkbox list.
-   2. Test-connection button probes the dashboard.
+   2. Keep the configured dashboard link in sync with the URL input.
    3. Initialize posts guardrails and opens the SSE stream.
    4. SSE events drive the live feed, status bar, and breach banner.
    ========================================================================== */
@@ -206,6 +209,7 @@ async function loadCatalog() {
   const data = await res.json();
   catalog = data.metrics;
   if (data.dashboardUrl) $("dashboard-url").value = data.dashboardUrl;
+  updateDashboardLink();
 
   $("metric-list").innerHTML = catalog.map((m) => `
     <div class="metric-item" id="mi-${m.key}">
@@ -302,23 +306,25 @@ function updateInitButton() {
     : `${count} metric(s) selected.`;
 }
 
-/* ---------- 2. Test connection ---------- */
-$("test-btn").addEventListener("click", async () => {
-  const el = $("conn-result");
-  el.textContent = "Testing…"; el.className = "conn-result";
+function updateDashboardLink() {
+  const link = $("open-dashboard-btn");
+  const rawUrl = $("dashboard-url").value.trim();
   try {
-    const res = await fetch("/api/test-connection?url=" + encodeURIComponent($("dashboard-url").value));
-    const data = await res.json();
-    el.textContent = data.ok ? "✓ Connected — dashboard is reachable" : "✗ " + data.error;
-    el.className = "conn-result " + (data.ok ? "conn-ok" : "conn-err");
-    if (data.ok) loadBaseline(); // re-seed guardrails from this dashboard's baseline
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Unsupported dashboard URL");
+    link.href = url.href;
+    link.removeAttribute("aria-disabled");
+    link.removeAttribute("tabindex");
   } catch {
-    el.textContent = "✗ Could not reach the tool backend"; el.className = "conn-result conn-err";
+    link.removeAttribute("href");
+    link.setAttribute("aria-disabled", "true");
+    link.tabIndex = -1;
   }
-});
+}
 
 // Re-fetch baseline when the dashboard URL changes.
 $("dashboard-url").addEventListener("blur", loadBaseline);
+$("dashboard-url").addEventListener("input", updateDashboardLink);
 
 /* ---------- 3. Initialize / Stop ---------- */
 $("init-btn").addEventListener("click", async () => {
